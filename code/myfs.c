@@ -33,25 +33,28 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 	write_log("myfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, stbuf);
 
 	memset(stbuf, 0, sizeof(struct stat));
-	if(strcmp(path, "/")==0){
-		stbuf->st_mode = the_root_fcb.root_mode;
-		stbuf->st_nlink = 2;
-		stbuf->st_uid = the_root_fcb.root_uid;
-		stbuf->st_gid = the_root_fcb.root_gid;
-	}else{
-		if (strcmp(path, the_root_fcb.path) == 0) {
-			stbuf->st_mode = the_root_fcb.mode;
-			stbuf->st_nlink = 1;
-			stbuf->st_mtime = the_root_fcb.mtime;
-			stbuf->st_ctime = the_root_fcb.ctime;
-			stbuf->st_size = the_root_fcb.size;
-			stbuf->st_uid = the_root_fcb.uid;
-			stbuf->st_gid = the_root_fcb.gid;
-		}else{
-			write_log("myfs_getattr - ENOENT");
-			return -ENOENT;
-		}
-	}
+
+	
+
+	// if(strcmp(path, "/")==0){
+	// 	stbuf->st_mode = the_root_fcb.mode;
+	// 	stbuf->st_nlink = 2;
+	// 	stbuf->st_uid = the_root_fcb.uid;
+	// 	stbuf->st_gid = the_root_fcb.gid;
+	// }else{
+	// 	if (strcmp(path, the_root_fcb.path) == 0) {
+	// 		stbuf->st_mode = the_root_fcb.mode;
+	// 		stbuf->st_nlink = 1;
+	// 		stbuf->st_mtime = the_root_fcb.mtime;
+	// 		stbuf->st_ctime = the_root_fcb.ctime;
+	// 		stbuf->st_size = the_root_fcb.size;
+	// 		stbuf->st_uid = the_root_fcb.uid;
+	// 		stbuf->st_gid = the_root_fcb.gid;
+	// 	}else{
+	// 		write_log("myfs_getattr - ENOENT");
+	// 		return -ENOENT;
+	// 	}
+	// }
 	
 	return 0;
 }
@@ -59,7 +62,6 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 // Read a directory.
 // Read 'man 2 readdir'.
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-
     (void) offset;  // This prevents compiler warnings
 	(void) fi;
 
@@ -149,7 +151,7 @@ static int myfs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 		write_log("myfs_create - ENAMETOOLONG");
 		return -ENAMETOOLONG;
 	}
-	sprintf(the_root_fcb.path,path);
+	sprintf(the_root_fcb.path, path);
 	struct fuse_context *context = fuse_get_context();
 	the_root_fcb.uid=context->uid;
 	the_root_fcb.gid=context->gid;
@@ -394,10 +396,10 @@ void init_fs(){
 				
         // Sensible initialisation for the root FCB
 		//See 'man 2 stat' and 'man 2 chmod'.
-		the_root_fcb.root_mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
-		the_root_fcb.root_mtime = time(0);
-		the_root_fcb.root_uid = getuid();
-		the_root_fcb.root_gid = getgid();
+		the_root_fcb.mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
+		the_root_fcb.mtime = time(0);
+		the_root_fcb.uid = getuid();
+		the_root_fcb.gid = getgid();
 		
         // Write the root FCB
 		printf("init_fs: writing root fcb\n");
@@ -410,7 +412,7 @@ void init_fs(){
      	if(rc==UNQLITE_OK) { 
 	 		printf("init_store: root object was found\n"); 
         }
-	 	if(nBytes!=sizeof(myfcb)) { 
+	 	if(nBytes!=sizeof(myfcb)) { // sizeof(myfcb) is the size of the file control block
 			printf("Data object has unexpected size. Doing nothing.\n");
 			exit(-1);
         }
