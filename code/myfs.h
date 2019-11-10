@@ -1,5 +1,3 @@
-#define __USE_XOPEN
-
 //#include "fs.h"
 #include <uuid/uuid.h>
 #include <stdio.h>
@@ -26,12 +24,8 @@
 // Obviously, you will need to be change this into a
 // more sensible FCB to implement a proper filesystem
 
-//This is the struct for the file control block
 typedef struct _myfcb {
-    //Modified: arbitary length file names <=
-    char* path;
-
-    //Key of the unqlite
+    char path[MY_MAX_PATH];
     uuid_t file_data_id;
     
     // see 'man 2 stat' and 'man 2 chmod'
@@ -42,17 +36,13 @@ typedef struct _myfcb {
     time_t mtime;   /* time of last modification */
     time_t ctime;   /* time of last change to meta-data (status) */
     off_t size;     /* size */
-
-    //Access time:
-    // time_t atime;           /* Time of last access time */
-
-    //blocks defination
-    // blkcnt_t st_blocks;     /* number of blocks allocated */
-    // blksize_t st_blksize;   /* blocksize for file system IO */
-
-    //meta-data for 'directory' can be controlled by changing the mode: IS_DIR
+    
+    //meta-data for the root thing (directory)
+    uid_t  root_uid;    /* user */
+    gid_t  root_gid;    /* group */
+    mode_t root_mode;   /* protection */
+    time_t root_mtime;  /* time of last modification */
 } myfcb;
-
 
 
 // Some other useful definitions we might need

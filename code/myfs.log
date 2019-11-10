@@ -1,7 +1,0 @@
-myfs_getattr(path="/.Trash", statbuf=0x7a461c00)
-myfs_getattr - ENOENTmyfs_getattr(path="/.Trash-21147", statbuf=0x79c3ec00)
-myfs_getattr - ENOENTmyfs_getattr(path="/.Trash", statbuf=0x7a461c00)
-myfs_getattr - ENOENTmyfs_getattr(path="/.Trash-21147", statbuf=0x79c3ec00)
-myfs_getattr - ENOENTmyfs_getattr(path="/", statbuf=0x7a461bd0)
-write_readdir(path="/", buf=0x740030c0, filler=0x7a7a5ae0, offset=0, fi=0x79c3ebf0)
-myfs_getattr(path="/", statbuf=0x7a461bd0)
