@@ -15,6 +15,10 @@
 // The one and only fcb that this implmentation will have. We'll keep it in memory. A better 
 // implementation would, at the very least, cache it's root directroy in memory. 
 myfcb the_root_fcb;
+
+//root dir will be write into store and struct trees will be write using indexed allocation
+access_block * root_dir = NULL;
+
 unqlite_int64 root_object_size_value = sizeof(myfcb);
 
 // This is the pointer to the database we will use to store all our files
@@ -34,10 +38,10 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if(strcmp(path, "/")==0){
-		stbuf->st_mode = the_root_fcb.root_mode;
+		stbuf->st_mode = the_root_fcb.mode;
 		stbuf->st_nlink = 2;
-		stbuf->st_uid = the_root_fcb.root_uid;
-		stbuf->st_gid = the_root_fcb.root_gid;
+		stbuf->st_uid = the_root_fcb.uid;
+		stbuf->st_gid = the_root_fcb.gid;
 	}else{
 		if (strcmp(path, the_root_fcb.path) == 0) {
 			stbuf->st_mode = the_root_fcb.mode;
@@ -47,6 +51,7 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 			stbuf->st_size = the_root_fcb.size;
 			stbuf->st_uid = the_root_fcb.uid;
 			stbuf->st_gid = the_root_fcb.gid;
+			stbuf->st_atime = the_root_fcb.atime;
 		}else{
 			write_log("myfs_getattr - ENOENT");
 			return -ENOENT;
@@ -392,12 +397,10 @@ void init_fs(){
         // clear everything in the_root_fcb
 		memset(&the_root_fcb, 0, sizeof(myfcb));
 				
-        // Sensible initialisation for the root FCB
-		//See 'man 2 stat' and 'man 2 chmod'.
-		the_root_fcb.root_mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
-		the_root_fcb.root_mtime = time(0);
-		the_root_fcb.root_uid = getuid();
-		the_root_fcb.root_gid = getgid();
+        // Sensible initialisatiomyfse(0);
+		the_root_fcb.uid = getuid();
+		the_root_fcb.gid = getgid();
+		uuid_generate(the_root_fcb.file_data_id);
 		
         // Write the root FCB
 		printf("init_fs: writing root fcb\n");
@@ -415,6 +418,14 @@ void init_fs(){
 			exit(-1);
         }
     }
+}
+
+void init_dir() {
+	int rc;
+	printf("initialise directory content block");
+
+	//initialise the root_dir
+	root_dir = (access_block*)malloc(sizeof(access_block));
 }
 
 void shutdown_fs(){
