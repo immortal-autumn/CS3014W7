@@ -24,6 +24,7 @@ typedef struct _freelist
 typedef struct _access
 {
     uuid_t current; /* Current directory uuid */
+    uuid_t parent;
     uuid_t * direct_access;
     uuid_t single_indirected;
 } access_block;

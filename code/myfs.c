@@ -17,7 +17,7 @@
 myfcb the_root_fcb;
 
 //root dir will be write into store and struct trees will be write using indexed allocation
-access_block * root_dir = NULL;
+access_block root_dir;
 
 unqlite_int64 root_object_size_value = sizeof(myfcb);
 
@@ -375,7 +375,6 @@ void init_fs(){
 	int rc;
 	printf("init_fs\n");
 	//Initialise the store.
-    
 	uuid_clear(zero_uuid);
 	
 	// Open the database.
@@ -422,17 +421,43 @@ void init_fs(){
 
 void init_dir() {
 	int rc;
-	printf("initialise directory content block");
+	unqlite_int64 nBytes;
+	printf("initialise directory content block\n");
 
-	//initialise the root_dir
-	root_dir = (access_block*)malloc(sizeof(access_block));
+	//Try to fectch the data block
+	rc = unqlite_kv_fetch(pDb, the_root_fcb.file_data_id, KEY_SIZE, &root_dir, &nBytes);
+
+	if (rc == UNQLITE_NOTFOUND) {
+		printf("init_dir: directory structure not established\n");
+
+		//clear everything in the root_dir
+		memset(&root_dir, 0, sizeof(access_block));
+
+		//semsoable initialisation
+		uuid_copy(zero_uuid, root_dir.parent);
+
+		//Now, current is the file_data_id and the direct access and single_indirected are 0s
+		//So we can now write back to finish the creation
+		rc = unqlite_kv_store(pDb, the_root_fcb.file_data_id, KEY_SIZE, &root_dir, sizeof(access_block));
+
+		if(rc != UNQLITE_OK) error_handler(rc);
+	}
+	else {
+		if (rc == UNQLITE_OK) {
+			printf("init_dir: root dir was found \n");
+		}
+		if (nBytes != sizeof(myfcb)) {
+			printf("Block object has unexpected size. Doing nothing. \n");
+			exit(-1);
+		}
+	}
 }
 
 void shutdown_fs(){
 	unqlite_close(pDb);
 }
 
-int main(int argc, char *argv[]){	
+int main(int argc, char *argv[]){
 	int fuserc;
 	struct myfs_state *myfs_internal_state;
 
@@ -442,7 +467,8 @@ int main(int argc, char *argv[]){
 	
 	//Initialise the file system. This is being done outside of fuse for ease of debugging.
 	init_fs();
-		
+	init_dir();
+	
     // Now pass our function pointers over to FUSE, so they can be called whenever someone
     // tries to interact with our filesystem. The internal state contains a file handle
     // for the logging mechanism
@@ -453,4 +479,3 @@ int main(int argc, char *argv[]){
 	
 	return fuserc;
 }
-
