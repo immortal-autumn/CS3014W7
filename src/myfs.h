@@ -1,7 +1,6 @@
-#define _XOPEN_SOURCE
-
 //#include "fs.h"
 #include <uuid/uuid.h>
+#include <unqlite.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,28 +10,23 @@
 #include <time.h>
 #include <fuse.h>
 
-#include "unqlite.h"
-
 #define MY_MAX_PATH 100
 #define MY_MAX_FILE_SIZE 1000
 
-typedef struct _freelist
-{
-    /* data */
-} freed;
-
+//directory access block
 typedef struct _access
 {
     uuid_t current; /* Current directory uuid */
     uuid_t parent;
-    uuid_t * direct_access;
-    uuid_t single_indirected;
+    uuid_t direct_access[100];
+    // uuid_t single_indirected;
 } access_block;
 
 
+//file control block
 typedef struct _myfcb {
     char path[MY_MAX_PATH];
-    uuid_t file_data_id; /* The key of data stored in database */
+    uuid_t file_data_id;
     
     // see 'man 2 stat' and 'man 2 chmod'
     //meta-data for the 'file'
@@ -44,13 +38,11 @@ typedef struct _myfcb {
     time_t atime;  /* time of last access */
     off_t size;     /* size */
     
-    // //meta-data for the root thing (directory)
-    // uid_t  root_uid;    /* user */
-    // gid_t  root_gid;    /* group */
-    // mode_t root_mode;   /* protection */
-    // time_t root_mtime;  /* time of last modification */
-    // time_t root_atime; /* time of last access */
-
+    //meta-data for the root thing (directory)
+    uid_t  root_uid;    /* user */
+    gid_t  root_gid;    /* group */
+    mode_t root_mode;   /* protection */
+    time_t root_mtime;  /* time of last modification */
 } myfcb;
 
 
@@ -61,8 +53,6 @@ extern unqlite_int64 root_object_size_value;
 // We need to use a well-known value as a key for the root object.
 #define ROOT_OBJECT_KEY "root"
 #define ROOT_OBJECT_KEY_SIZE 4
-// #define ROOT_DIR_KEY "rootdir"
-// #define ROOT_DIR_KEY_SIZE 7
 
 // This is the size of a regular key used to fetch things from the 
 // database. We use uuids as keys, so 16 bytes each

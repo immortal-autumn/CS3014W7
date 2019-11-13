@@ -1,0 +1,1 @@
+/usr/lib64/ccache/cc -g   CMakeFiles/W7Practical.dir/src/myfs.c.o CMakeFiles/W7Practical.dir/src/test.c.o CMakeFiles/W7Practical.dir/src/unqlite.c.o  -o W7Practical 

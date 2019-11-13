@@ -15,10 +15,6 @@
 // The one and only fcb that this implmentation will have. We'll keep it in memory. A better 
 // implementation would, at the very least, cache it's root directroy in memory. 
 myfcb the_root_fcb;
-
-//root dir will be write into store and struct trees will be write using indexed allocation
-access_block root_dir;
-
 unqlite_int64 root_object_size_value = sizeof(myfcb);
 
 // This is the pointer to the database we will use to store all our files
@@ -38,11 +34,15 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if(strcmp(path, "/")==0){
-		stbuf->st_mode = the_root_fcb.mode;
+		stbuf->st_mode = the_root_fcb.root_mode;
 		stbuf->st_nlink = 2;
-		stbuf->st_uid = the_root_fcb.uid;
-		stbuf->st_gid = the_root_fcb.gid;
+		stbuf->st_uid = the_root_fcb.root_uid;
+		stbuf->st_gid = the_root_fcb.root_gid;
 	}else{
+		// char* token = strtok(path, "/");
+		// while(token != NULL) {
+		// 	token = strtok(NULL, "/")
+		// }
 		if (strcmp(path, the_root_fcb.path) == 0) {
 			stbuf->st_mode = the_root_fcb.mode;
 			stbuf->st_nlink = 1;
@@ -51,7 +51,6 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 			stbuf->st_size = the_root_fcb.size;
 			stbuf->st_uid = the_root_fcb.uid;
 			stbuf->st_gid = the_root_fcb.gid;
-			stbuf->st_atime = the_root_fcb.atime;
 		}else{
 			write_log("myfs_getattr - ENOENT");
 			return -ENOENT;
@@ -367,6 +366,50 @@ static struct fuse_operations myfs_oper = {
 	.release	= myfs_release,
 };
 
+void init_dir() {
+	printf("Hierarchy:\n");
+	int rc;
+
+	//root directory access block
+	access_block root_dir;
+
+	unqlite_int64 nBytes; //Data length
+
+	//Try to fetch root element from the root_fcb
+	rc = unqlite_kv_fetch(pDb,the_root_fcb.file_data_id,KEY_SIZE,&root_dir,&nBytes);
+
+	//if it doesn't exist, we need to create it and writeback
+	//This will be the hierarchy system for the root fcb
+	if (rc == UNQLITE_NOTFOUND) {
+		printf("Hierarchy: Not found - Creating hierarchy system:\n");
+
+		//clear everything in the root_dir
+		memset(&root_dir, 0, sizeof(access_block));
+		
+		//Initialisation
+		uuid_copy(root_dir.current, the_root_fcb.file_data_id);
+		uuid_copy(root_dir.parent, zero_uuid);
+
+		//Write back
+		printf("Writing to .db file:\n");
+		uuid_t *data_id = &(root_dir.current);
+		rc = unqlite_kv_store(pDb, data_id, KEY_SIZE, &root_dir, sizeof(access_block));
+		printf("%llu Bytes are written to the unqlite\n", sizeof(access_block));
+
+		if(rc != UNQLITE_OK) error_handler(rc);
+	}
+	else
+    {
+     	if(rc==UNQLITE_OK) { 
+	 		printf("init_store: root directory was found\n"); 
+        }
+	 	if(nBytes!=sizeof(access_block)) { 
+			printf("Data object has unexpected size %llu. Doing nothing.\n", nBytes);
+			exit(-1);
+        }
+    }
+}
+
 
 // Initialise the in-memory data structures from the store. If the root object (from the store) is empty then create a root fcb (directory)
 // and write it to the store. Note that this code is executed outide of fuse. If there is a failure then we have failed toi initlaise the 
@@ -375,6 +418,7 @@ void init_fs(){
 	int rc;
 	printf("init_fs\n");
 	//Initialise the store.
+    
 	uuid_clear(zero_uuid);
 	
 	// Open the database.
@@ -396,9 +440,12 @@ void init_fs(){
         // clear everything in the_root_fcb
 		memset(&the_root_fcb, 0, sizeof(myfcb));
 				
-        // Sensible initialisatiomyfse(0);
-		the_root_fcb.uid = getuid();
-		the_root_fcb.gid = getgid();
+        // Sensible initialisation for the root FCB
+		//See 'man 2 stat' and 'man 2 chmod'.
+		the_root_fcb.root_mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
+		the_root_fcb.root_mtime = time(0);
+		the_root_fcb.root_uid = getuid();
+		the_root_fcb.root_gid = getgid();
 		uuid_generate(the_root_fcb.file_data_id);
 		
         // Write the root FCB
@@ -419,45 +466,11 @@ void init_fs(){
     }
 }
 
-void init_dir() {
-	int rc;
-	unqlite_int64 nBytes;
-	printf("initialise directory content block\n");
-
-	//Try to fectch the data block
-	rc = unqlite_kv_fetch(pDb, the_root_fcb.file_data_id, KEY_SIZE, &root_dir, &nBytes);
-
-	if (rc == UNQLITE_NOTFOUND) {
-		printf("init_dir: directory structure not established\n");
-
-		//clear everything in the root_dir
-		memset(&root_dir, 0, sizeof(access_block));
-
-		//semsoable initialisation
-		uuid_copy(zero_uuid, root_dir.parent);
-
-		//Now, current is the file_data_id and the direct access and single_indirected are 0s
-		//So we can now write back to finish the creation
-		rc = unqlite_kv_store(pDb, the_root_fcb.file_data_id, KEY_SIZE, &root_dir, sizeof(access_block));
-
-		if(rc != UNQLITE_OK) error_handler(rc);
-	}
-	else {
-		if (rc == UNQLITE_OK) {
-			printf("init_dir: root dir was found \n");
-		}
-		if (nBytes != sizeof(myfcb)) {
-			printf("Block object has unexpected size. Doing nothing. \n");
-			exit(-1);
-		}
-	}
-}
-
 void shutdown_fs(){
 	unqlite_close(pDb);
 }
 
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[]){	
 	int fuserc;
 	struct myfs_state *myfs_internal_state;
 
@@ -468,7 +481,7 @@ int main(int argc, char *argv[]){
 	//Initialise the file system. This is being done outside of fuse for ease of debugging.
 	init_fs();
 	init_dir();
-	
+
     // Now pass our function pointers over to FUSE, so they can be called whenever someone
     // tries to interact with our filesystem. The internal state contains a file handle
     // for the logging mechanism
@@ -479,3 +492,4 @@ int main(int argc, char *argv[]){
 	
 	return fuserc;
 }
+
