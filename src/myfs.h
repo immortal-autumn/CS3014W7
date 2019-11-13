@@ -18,8 +18,10 @@ typedef struct _access
 {
     uuid_t current; /* Current directory uuid */
     uuid_t parent;
-    uuid_t direct_access[100];
-    // uuid_t single_indirected;
+    uuid_t direct_access[12];
+    uuid_t single_indirect;
+    uuid_t double_indirect;
+    uuid_t Triple_indirect;
 } access_block;
 
 

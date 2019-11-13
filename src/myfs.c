@@ -373,10 +373,14 @@ void init_dir() {
 	//root directory access block
 	access_block root_dir;
 
-	unqlite_int64 nBytes; //Data length
+	//Set the key value
+	uuid_t *data_id = &(the_root_fcb.file_data_id);
 
-	//Try to fetch root element from the root_fcb
-	rc = unqlite_kv_fetch(pDb,the_root_fcb.file_data_id,KEY_SIZE,&root_dir,&nBytes);
+	//Value for storing the data length
+	unqlite_int64 nBytes;
+
+	//Try to fetch root hierarchy element from the root_fcb
+	rc = unqlite_kv_fetch(pDb,data_id,KEY_SIZE,&root_dir,&nBytes);
 
 	//if it doesn't exist, we need to create it and writeback
 	//This will be the hierarchy system for the root fcb
@@ -392,9 +396,7 @@ void init_dir() {
 
 		//Write back
 		printf("Writing to .db file:\n");
-		uuid_t *data_id = &(root_dir.current);
 		rc = unqlite_kv_store(pDb, data_id, KEY_SIZE, &root_dir, sizeof(access_block));
-		printf("%llu Bytes are written to the unqlite\n", sizeof(access_block));
 
 		if(rc != UNQLITE_OK) error_handler(rc);
 	}
