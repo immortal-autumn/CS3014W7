@@ -40,11 +40,11 @@ typedef struct _myfcb {
     time_t atime;  /* time of last access */
     off_t size;     /* size */
     
-    //meta-data for the root thing (directory)
-    uid_t  root_uid;    /* user */
-    gid_t  root_gid;    /* group */
-    mode_t root_mode;   /* protection */
-    time_t root_mtime;  /* time of last modification */
+    // //meta-data for the root thing (directory)
+    // uid_t  root_uid;    /* user */
+    // gid_t  root_gid;    /* group */
+    // mode_t root_mode;   /* protection */
+    // time_t root_mtime;  /* time of last modification */
 } myfcb;
 
 
