@@ -1,6 +1,6 @@
 //#include "fs.h"
 #include <uuid/uuid.h>
-#include <unqlite.h>
+#include "unqlite.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,13 +12,14 @@
 
 #define MY_MAX_PATH 100
 #define MY_MAX_FILE_SIZE 1000
+#define DIRECT_SIZE 12
 
 //directory access block
 typedef struct _access
 {
+    int size;
     uuid_t current; /* Current directory uuid */
-    uuid_t parent;
-    uuid_t direct_access[12];
+    uuid_t direct_access[DIRECT_SIZE];
     uuid_t single_indirect;
     uuid_t double_indirect;
     uuid_t Triple_indirect;

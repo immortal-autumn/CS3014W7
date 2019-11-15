@@ -96,7 +96,6 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 		s_file = the_root_fcb;		//assign the pointer to the root directory
 		char *tmp;					//Reach to the directory
 		char *ptr = tmp;			//pointer to &tmp
-		unqlite_int64 nBytes;		//nBytes;
 		int count = 0;				//Counting for hierarchy
 
 		//Copy constant string to non-constant with memcpy, can be achieved with strdup()
@@ -134,19 +133,54 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 		}
 		//Then read through the hierarchy to get the data from unqlite
 		//We may need to attention that whether it is a directory
-		for (int i = 0; i < count -1; i++) {
+		for (int i = 0; i < count - 1; i++) {
 			char* next = path_arr[i];
+			unqlite_int64 nBytes;		//nBytes;
+
+			rc = unqlite_kv_fetch(pDb, &(s_file.file_data_id), KEY_SIZE, &directory, &nBytes); //This will fetch the directory information. It should success.
+			if (rc != UNQLITE_OK) {
+				error_handler(rc);
+				return -EIO;
+			}
+			//Now the directory has the current directory information
+			//Then we will try to reach to next hierarchy
+			//First we will not concentrate on indirect entry
+			myfcb tmp_fcb;
+			char found = 0;
+			if (directory.size <= DIRECT_SIZE) {
+				for (int j = 0; j < directory.size; j++) {
+					uuid_t* current = directory.direct_access;
+					rc = unqlite_kv_fetch(pDb, &(current[j]), KEY_SIZE, &tmp_fcb, &nBytes); //This will fetch fcb of current uid
+					if (rc != UNQLITE_OK) {
+						error_handler(rc);
+						return -EIO;
+					}
+					if (strcmp(tmp_fcb.path, next) == 0) {
+						found = 1;
+						s_file = tmp_fcb;
+						break;
+					}
+				}
+			}
+			if (found == 0) {
+				write_log("File not found.");
+				return -ENOENT;
+			}
 		}
 	}
 
-	//Read all data in dir block
-
-	//Print to stream
-	// if(*pathP!='\0'){
-	// 	// drop the leading '/';
-	// 	pathP++;
-	// 	filler(buf, pathP, NULL, 0);
-	// }
+	myfcb tmp_fcb;
+	unqlite_int64 nBytes;
+	//Read all data in dir block -> direct access only
+	for (int i = 0; i < directory.size; i++) {
+		uuid_t* current = directory.direct_access;
+		rc = unqlite_kv_fetch(pDb, &(current[i]), KEY_SIZE, &tmp_fcb, &nBytes); //This will fetch fcb of current uid
+		if (rc != UNQLITE_OK) {
+			error_handler(rc);
+			return -EIO;
+		}
+		filler(buf, tmp_fcb.path, NULL, 0);
+	}
 	return 0;
 }
 
@@ -485,7 +519,6 @@ void init_dir()
 
 		//Initialisation
 		uuid_copy(root_dir.current, the_root_fcb.file_data_id);
-		uuid_copy(root_dir.parent, zero_uuid);
 
 		//Write back
 		printf("Writing to .db file:\n");
