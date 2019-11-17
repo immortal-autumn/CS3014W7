@@ -21,6 +21,212 @@ unqlite_int64 root_object_size_value = sizeof(myfcb);
 unqlite *pDb;
 uuid_t zero_uuid;
 
+//Functions following can be used for shorten the code and improve the stroage usage:
+
+//Splite path can divide the path into arbitary length
+char** split_path(const char* path, int* size) {
+	char* cpy_path = strdup(path);
+	char** path_lst;
+
+	//set pointer
+	char* ptr = cpy_path;
+	while (*ptr != '\0') {
+		if ('/' == *ptr) {
+			(*size)++;
+		}
+		ptr++;
+	}
+	char** path_arr = malloc(sizeof(char*) * ((*size) - 1));
+	if (path_arr) {
+		//Set token dividied by "/".
+		//Since the file format is "/.../.../..." so we abandon the first token - "/"
+		char *token = strtok(cpy_path, "/");
+		int id = 0;
+		//now the path is .../.../...
+		//By using second strtok we will get: token:...  -> non_cons:.../...
+		//Now the pointer array will create like [hier0, hier1, ..., hier(n-2)] and the final destination is path_arr[count - 2]
+		for (int i = 0; i < (*size) - 1; i++) {
+			*(path_arr + i) = strdup(strtok(0, "/"));
+		}
+	}
+	free(cpy_path);
+	return path_lst;
+}
+
+void free_strptr_arr(char** arr_ptr, int size) {
+	for (int i = 0; i < size; i++) {
+		free(arr_ptr[i]);
+	}
+}
+
+//Direct: OK
+//Single indirect : OK
+//Doudble indirect: ?
+int directory_uuid_getter(access_block dir, uuid_t **uuid_arr) {
+	uuid_t* uuid_list = malloc(sizeof(uuid_t) * dir.size);
+	int rc;
+	//Direct access
+	for (int i = 0; i < DIRECT_SIZE; i++) {
+		if (uuid_compare(dir.direct_access[i], zero_uuid) == 0) {
+			continue;
+		}
+		uuid_copy(uuid_list[i], dir.direct_access[i]);
+	}
+	//Single indirect access
+	if (uuid_compare(dir.single_indirect, zero_uuid) != 0) {
+		unqlite_int64 nBytes;
+		indirect tmp;
+		rc = unqlite_kv_fetch(pDb, &(dir.single_indirect), KEY_SIZE, &tmp, &nBytes);
+		if (rc != UNQLITE_OK) {
+			error_handler(rc);
+			return -EIO;
+		}
+		for (int i = 0; i < INDIRECT_SIZE; i++) {
+			if (uuid_compare(tmp.indirect_access[i], zero_uuid) == 0) {
+				continue;
+			}
+			uuid_copy(uuid_list[DIRECT_SIZE + i], tmp.indirect_access[i]);
+		}
+	}
+	//Assign uuid_list to incoming variable
+	*uuid_arr = uuid_list;
+	return 0;
+}
+
+//Read the specific filename from directory block and assign to fcb
+//This currently only works on direct access only
+int readPath(char* filename, access_block dir, myfcb *fcb) {
+	uuid_t* uuid_list;
+	if (directory_uuid_getter(dir, &uuid_list) == 0) {
+		int rc;
+		unqlite_int64 nBytes;
+		myfcb tmp;
+		for (int i = 0; i < dir.size; i++) {
+			rc = unqlite_kv_fetch(pDb, &(uuid_list[i]), KEY_SIZE, &tmp, &nBytes);
+			if (rc != UNQLITE_OK) {
+				free(uuid_list);
+				error_handler(rc);
+				return -EIO;
+			}
+			if (strcmp(tmp.path, filename) == 0) {
+				free(uuid_list);
+				*fcb = tmp;
+				return 0;
+			}
+		}
+		free(uuid_list);
+		return -ENONET;
+	}
+	else {
+		write_log("read_path: read failed with unknown exception.\n");
+		return -EIO;
+	}
+}
+
+//Generate a new key from the dierctory block
+int generate_newkey(access_block* dir, uuid_t* key) {
+	//Direct access
+	for (int i = 0; i < DIRECT_SIZE; i++) {
+		if (uuid_compare(zero_uuid, dir->direct_access[i]) == 0) {
+			uuid_generate(dir->direct_access[i]);
+			uuid_copy(*key, dir->direct_access[i]);
+			return 0;
+		}
+	}
+
+	//Single indirect access
+	int rc;
+	//if indirect is 0, generate a new key.
+	if (uuid_compare(zero_uuid, dir->single_indirect) == 0) {
+		indirect indir;
+		memset(&indir, 0, sizeof(indirect)); //Clear everything in indir
+		
+
+		uuid_generate(dir -> single_indirect); //generate indirect key
+		
+	}
+	else {
+
+	}
+
+	write_log("generateor_new_key(): Directory space is not enough.\n");
+	return -EIO;
+}
+
+//Find free access path from access_block
+//With free_list this will read the free_list first, or generate a new fcb
+int find_free(myfcb src, uuid_t *key) {
+	int rc;
+	access_block s_dir;
+	unqlite_int64 nBytes;
+
+	//Now we are currently looking at s_dir block
+	rc = unqlite_kv_fetch(pDb, &(src.file_data_id), KEY_SIZE, &s_dir, &nBytes);
+	if (rc != UNQLITE_OK || nBytes != sizeof(access_block)) {
+		write_log("find_free(): fetch directory content from unqlite failed: %i - size read: %i\n", rc, nBytes);
+		error_handler(rc);
+		return -EIO;
+	}
+
+	if ((rc = generate_newkey(&s_dir, key)) != 0) {
+		return rc;
+	}
+
+	//Now we should write back changes and create a new fcb.
+	rc = unqlite_kv_store(pDb, &(src.file_data_id), KEY_SIZE, &s_dir, sizeof(access_block));
+	if (rc != UNQLITE_OK) {
+		write_log("find_free(): Write back failed: %i \n", rc);
+		error_handler(rc);
+		return -EIO;
+	}
+	return 0;
+}
+
+//This will accept an file id and set the directory in the fcb.
+int create_new_dir(uuid_t* file_id, uuid_t* dir_id, mode_t mode) {
+	//Set directory block and fcb
+	access_block *new_dir;
+	myfcb *new_fcb;
+
+	//initial directory control block with 0
+	memset(new_dir, 0, sizeof(access_block));
+	//initial file control block with 0
+	memset(new_fcb, 0, sizeof(myfcb));
+	//generate new file_data_id
+	uuid_t dir_uuid;
+	uuid_t fcb_uuid;
+	
+	//Set the fcb
+	new_fcb -> atime = time(NULL);
+	new_fcb -> mtime = time(NULL);
+	new_fcb -> ctime = time(NULL);
+	new_fcb -> uid = getuid();
+	new_fcb -> gid = getgid();
+	new_fcb -> mode = mode | S_IFDIR;
+	new_fcb -> size = sizeof(myfcb);
+	//link new_dir and new_fcb
+	uuid_copy(new_fcb -> file_data_id, *dir_id);
+	
+	int rc;
+	//write back fcb
+	rc = unqlite_kv_store(pDb, file_id, KEY_SIZE, new_fcb, sizeof(myfcb));
+	if (rc != UNQLITE_OK) {
+		write_log("create_dir: Create failed - failed to write fcb into unqlite: %i\n", rc);
+		error_handler(rc);
+		return -EIO;
+	}
+
+	//write back directory
+	rc = unqlite_kv_store(pDb, dir_id, KEY_SIZE, new_dir, sizeof(access_block));
+	if (rc != UNQLITE_OK) {
+		write_log("create_dir: Create failed - failed to write directory into unqlite: %i\n", rc);
+		error_handler(rc);
+		return -EIO;
+	}
+	return 0;
+}
+
+
 // The functions which follow are handler functions for various things a filesystem needs to do:
 // reading, getting attributes, truncating, etc. They will be called by FUSE whenever it needs
 // your filesystem to do something, so this is where functionality goes.
@@ -33,6 +239,9 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 	write_log("myfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, stbuf);
 
 	memset(stbuf, 0, sizeof(struct stat));
+
+	myfcb s_file = the_root_fcb; 	//fcb that needs to read
+	access_block directory;		 	//directory block
 
 	//if path is the root directory, we do not need to fetch the unqlite.
 	if (strcmp(path, "/") == 0)
@@ -47,20 +256,63 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 	}
 	else
 	{
-		int rc;
-		access_block dir;
-		unqlite_int64 nBytes;
-		//if the path is not root directory, we should fetch the unqlite first
-		uuid_t *data_id = &(the_root_fcb.file_data_id);
-		rc = unqlite_kv_fetch(pDb, data_id, KEY_SIZE, &dir, &nBytes);
-	}
+		int rc; //unqlite statement code
+		int hier_len;
+		char** path_arr = split_path(path, &hier_len); //hier_len - 1 is the hierarchy level of the file and path_arr includes the hierarchy content of the path
+		
+		//reach to the final fcb
+		if(path_arr) {
+			for (int i = 0; i < hier_len - 1; i++) {
+				char* next = path_arr[i];
+				unqlite_int64 nBytes;
 
+				rc = unqlite_kv_fetch(pDb, &(s_file.file_data_id), KEY_SIZE, &directory, &nBytes);
+				if (rc != UNQLITE_OK) {
+					error_handler(rc);
+					return -EIO;
+				}
+				myfcb tmp_fcb; //FCB
+				char found = 0;
+				if (directory.size <= DIRECT_SIZE) {
+					for (int j = 0; j < directory.size; j++) {
+						uuid_t* current = directory.direct_access;
+						rc = unqlite_kv_fetch(pDb, &(current[j]), KEY_SIZE, &tmp_fcb, &nBytes); //This will fetch fcb of current uid
+						if (rc != UNQLITE_OK) {
+							error_handler(rc);
+							return -EIO;
+						}
+						if (strcmp(tmp_fcb.path, next) == 0) {
+							found = 1;
+							s_file = tmp_fcb;
+							break;
+						}
+					}
+				}
+				if (found == 0) {
+					write_log("File not found.\n");
+					return -ENOENT;
+				}
+			}
+		}
+		else {
+			write_log("myfs: getattr() memory not enough\n");
+		}
+		//Print state
+		stbuf->st_mode = s_file.mode;
+		stbuf->st_nlink = 2; //Not defined
+		stbuf->st_mtime = s_file.mtime;
+		stbuf->st_ctime = s_file.ctime;
+		stbuf->st_size = s_file.size;
+		stbuf->st_uid = s_file.uid;
+		stbuf->st_gid = s_file.gid;
+		free_strptr_arr(path_arr, hier_len);
+	}
 	return 0;
 }
 
 // Read 'man 2 readdir'.
 /* Test_log: 
-	Root directory:
+	Root directory: OK
 	Directories:
  */
 static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
@@ -95,12 +347,11 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 		myfcb s_file; 				//Define the pointer
 		s_file = the_root_fcb;		//assign the pointer to the root directory
 		char *tmp;					//Reach to the directory
-		char *ptr = tmp;			//pointer to &tmp
+		char *ptr;					//pointer to &tmp
 		int count = 0;				//Counting for hierarchy
-
-		//Copy constant string to non-constant with memcpy, can be achieved with strdup()
-		tmp = strdup(path);
-
+		tmp = strdup(path); 		//Copy constant string to non-constant with memcpy, can be achieved with strdup()
+		ptr = tmp;					//Set pointer to tmp
+		
 		// STEP 1 - divide path into arrays:
 		// 		  - Creating an array for storing hierarchy directory struct
 		// 		  - 	e.g. ls -la /..1/..2/..3/ There will be 3 hierarchy directory
@@ -156,9 +407,12 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 						return -EIO;
 					}
 					if (strcmp(tmp_fcb.path, next) == 0) {
-						found = 1;
-						s_file = tmp_fcb;
-						break;
+						//Judge it is an directory
+						if (tmp_fcb.mode == S_IFDIR) {
+							found = 1;
+							s_file = tmp_fcb;
+							break;
+						}
 					}
 				}
 			}
@@ -167,6 +421,9 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 				return -ENOENT;
 			}
 		}
+		//Free path array and strduped filepath
+		free_strptr_arr(path_arr, count - 1);
+		free(tmp);
 	}
 
 	myfcb tmp_fcb;
@@ -416,6 +673,53 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid)
 int myfs_mkdir(const char *path, mode_t mode)
 {
 	write_log("myfs_mkdir: %s\n", path);
+	myfcb s_fcb = the_root_fcb;
+	access_block s_dir;
+	unqlite_int64 nBytes; //nBytes
+
+	int rc; //Statement code
+	int hier_lev = 0;
+	char** hier_path = split_path(path, &hier_lev);
+
+	//path1: /.../ hier_lev = 2, hier = 1, hier_path = [...]
+	//path2: /.../.../ hier_lev = 3, hier = 2, hier_path = [..., ...]
+	char* new_filename = hier_path[hier_lev - 2];
+	
+	if (hier_path) {
+		for (int i = 0; i < hier_lev - 2; i++) {
+			char *next = hier_path[i];
+			rc = unqlite_kv_fetch(pDb, &(s_fcb.file_data_id), KEY_SIZE, &s_dir, &nBytes);
+			if (rc != UNQLITE_OK) {
+				error_handler(rc);
+				write_log("mkdir: Root directory fetch failed: %i\n", rc);
+				return -EIO;
+			}
+			int response;
+			if ((response = readPath(next, s_dir, &s_fcb)) != 0) {
+				return response;
+			}
+			if ((s_fcb.mode & S_IFDIR) != S_IFDIR) {
+				write_log("mkdir: %s - This is not a directory\n", hier_path[i]);
+				return -ENOENT;
+			}
+		}
+	}
+	else {
+		write_log("mkdir: No enough memory space.\n");
+		return -EIO;
+	}
+	free_strptr_arr(hier_path, hier_lev);
+	
+	//Now we are in the fcb of the last directory that may exists. Then we will read the dir of this fcb and find appropriate position for a new block
+	uuid_t data_id;
+	rc = find_free(s_fcb, &data_id);
+	if (rc != 0) {
+		return rc;
+	}
+	
+	//Create the new directory
+	
+	
 
 	return 0;
 }
@@ -516,9 +820,6 @@ void init_dir()
 
 		//clear everything in the root_dir
 		memset(&root_dir, 0, sizeof(access_block));
-
-		//Initialisation
-		uuid_copy(root_dir.current, the_root_fcb.file_data_id);
 
 		//Write back
 		printf("Writing to .db file:\n");

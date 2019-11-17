@@ -13,12 +13,17 @@
 #define MY_MAX_PATH 100
 #define MY_MAX_FILE_SIZE 1000
 #define DIRECT_SIZE 12
+#define INDIRECT_SIZE 15
+
+//Single indirect node
+typedef struct _indirect {
+    uuid_t indirect_access[INDIRECT_SIZE];
+} indirect;
 
 //directory access block
 typedef struct _access
 {
     int size;
-    uuid_t current; /* Current directory uuid */
     uuid_t direct_access[DIRECT_SIZE];
     uuid_t single_indirect;
     uuid_t double_indirect;
