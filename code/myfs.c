@@ -21,32 +21,36 @@ unqlite_int64 root_object_size_value = sizeof(myfcb);
 unqlite *pDb;
 uuid_t zero_uuid;
 
-//functions
+//functions on save and read
 int fetch_ent(uuid_t *key, myent *ent) {
 	int rc;
 	unqlite_int64 nBytes = sizeof(myent);
-	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, ent, &nBytes);
-	if (rc != UNQLITE_OK) {
-		write_log("fetch_ent failed: error code - %i\n", rc);
-		return -EIO;
-	}
+
+	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, NULL, &nBytes);
 	if (nBytes != sizeof(myent)) {
 		write_log("fetch_ent failed: invalid fetch size - %i\n", nBytes);
 		return -EIO;
 	}
 	return 0;
+	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, ent, &nBytes);
+	if (rc != UNQLITE_OK) {
+		write_log("fetch_ent failed: error code - %i\n", rc);
+		return -EIO;
+	}
 }
 
 int fetch_fcb(uuid_t *key, myfcb *fcb) {
 	int rc;
 	unqlite_int64 nBytes = sizeof(myfcb);
+	
+	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, NULL, &nBytes);
+	if (nBytes != sizeof(myfcb)) {
+		write_log("fetch_ent failed: invalid fetch size - %i\n", nBytes);
+		return -EIO;
+	}
 	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, fcb, &nBytes);
 	if (rc != UNQLITE_OK) {
 		write_log("fetch_ent failed: error code - %i\n", rc);
-		return -EIO;
-	}
-	if (nBytes != sizeof(myfcb)) {
-		write_log("fetch_ent failed: invalid fetch size - %i\n", nBytes);
 		return -EIO;
 	}
 	return 0;
@@ -54,11 +58,31 @@ int fetch_fcb(uuid_t *key, myfcb *fcb) {
 
 int store_ent(uuid_t *key, myent *ent) {
 	int rc;
+	rc = unqlite_kv_store(pDb, key, KEY_SIZE, ent, sizeof(myent));
+	if (rc != UNQLITE_OK) {
+		write_log("Store entrance failed\n");
+		return -EIO;
+	}
+	return 0;
 }
 
 int store_fcb(uuid_t *key, myfcb *fcb) {
 	int rc;
+	rc = unqlite_kv_store(pDb, key, KEY_SIZE, fcb, sizeof(myfcb));
+	if (rc != UNQLITE_OK) {
+		write_log("Store entrance failed\n");
+		return -EIO;
+	}
+	return 0;
 }
+
+//functions on reading directory
+//In this case I only consider basic
+int find_path(const char *path) {
+
+}
+
+//functions on 
 
 // The functions which follow are handler functions for various things a filesystem needs to do:
 // reading, getting attributes, truncating, etc. They will be called by FUSE whenever it needs
