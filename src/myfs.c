@@ -136,17 +136,35 @@ int generate_newkey(access_block* dir, uuid_t* key) {
 
 	//Single indirect access
 	int rc;
-	//if indirect is 0, generate a new key.
-	if (uuid_compare(zero_uuid, dir->single_indirect) == 0) {
-		indirect indir;
-		memset(&indir, 0, sizeof(indirect)); //Clear everything in indir
-		
+	indirect indir;                      	//Define an indirect block
 
-		uuid_generate(dir -> single_indirect); //generate indirect key
-		
+	//if indirect is 0, generate a new key. No need to store this change as it will stored outside the function
+	if (uuid_compare(zero_uuid, dir->single_indirect) == 0) {
+		memset(&indir, 0, sizeof(indirect)); 	//Clear everything in indir
+		uuid_generate(dir -> single_indirect);  //generate indirect key
 	}
 	else {
+		unqlite_int64 nBytes;
+		rc = unqlite_kv_fetch(pDb, &(dir -> single_indirect), KEY_SIZE, &indir, &nBytes);
+		if(rc != UNQLITE_OK || nBytes != sizeof(indirect)) {
+			write_log("generate_new_key(): fetch failed with error code: %i - %i\n", rc, nBytes);
+			return -EIO;
+		}
+	}
 
+	//This time we got indirect block as indir. We will find a space for storing the value
+	for (int i = 0; i < INDIRECT_SIZE; i++) {
+		if (uuid_compare(zero_uuid, indir.indirect_access[i]) == 0) {
+			uuid_generate(indir.indirect_access[i]);
+			uuid_copy(*key, indir.indirect_access[i]);
+			//write back indirect block
+			rc = unqlite_kv_store(pDb, &(dir->single_indirect), KEY_SIZE, &indir, sizeof(indirect));
+			if(rc != UNQLITE_OK) {
+				write_log("generate - Indirect stroing failed with error code: %i\n", rc);
+				return -EIO;
+			}
+			return 0;
+		}
 	}
 
 	write_log("generateor_new_key(): Directory space is not enough.\n");
@@ -155,6 +173,7 @@ int generate_newkey(access_block* dir, uuid_t* key) {
 
 //Find free access path from access_block
 //With free_list this will read the free_list first, or generate a new fcb
+//In this case, new file data id has generated and exported, we need to link the new directory to the key.
 int find_free(myfcb src, uuid_t *key) {
 	int rc;
 	access_block s_dir;
@@ -182,34 +201,31 @@ int find_free(myfcb src, uuid_t *key) {
 	return 0;
 }
 
-//This will accept an file id and set the directory in the fcb.
-int create_new_dir(uuid_t* file_id, uuid_t* dir_id, mode_t mode) {
+//This will accept an file id and set the directory in the fcb. Then link them and write back to unqlite
+int create_new_dir(uuid_t* file_id, mode_t mode) {
 	//Set directory block and fcb
-	access_block *new_dir;
-	myfcb *new_fcb;
+	access_block new_dir;
+	myfcb new_fcb;
 
 	//initial directory control block with 0
-	memset(new_dir, 0, sizeof(access_block));
+	memset(&new_dir, 0, sizeof(access_block));
 	//initial file control block with 0
-	memset(new_fcb, 0, sizeof(myfcb));
-	//generate new file_data_id
-	uuid_t dir_uuid;
-	uuid_t fcb_uuid;
+	memset(&new_fcb, 0, sizeof(myfcb));
 	
 	//Set the fcb
-	new_fcb -> atime = time(NULL);
-	new_fcb -> mtime = time(NULL);
-	new_fcb -> ctime = time(NULL);
-	new_fcb -> uid = getuid();
-	new_fcb -> gid = getgid();
-	new_fcb -> mode = mode | S_IFDIR;
-	new_fcb -> size = sizeof(myfcb);
+	new_fcb.atime = time(NULL);
+	new_fcb. mtime = time(NULL);
+	new_fcb.ctime = time(NULL);
+	new_fcb.uid = getuid();
+	new_fcb.gid = getgid();
+	new_fcb.mode = mode | S_IFDIR;
+	new_fcb.size = sizeof(myfcb);
 	//link new_dir and new_fcb
-	uuid_copy(new_fcb -> file_data_id, *dir_id);
+	uuid_generate(new_fcb.file_data_id);
 	
 	int rc;
 	//write back fcb
-	rc = unqlite_kv_store(pDb, file_id, KEY_SIZE, new_fcb, sizeof(myfcb));
+	rc = unqlite_kv_store(pDb, file_id, KEY_SIZE, &new_fcb, sizeof(myfcb));
 	if (rc != UNQLITE_OK) {
 		write_log("create_dir: Create failed - failed to write fcb into unqlite: %i\n", rc);
 		error_handler(rc);
@@ -217,7 +233,7 @@ int create_new_dir(uuid_t* file_id, uuid_t* dir_id, mode_t mode) {
 	}
 
 	//write back directory
-	rc = unqlite_kv_store(pDb, dir_id, KEY_SIZE, new_dir, sizeof(access_block));
+	rc = unqlite_kv_store(pDb, &(new_fcb.file_data_id), KEY_SIZE, &new_dir, sizeof(access_block));
 	if (rc != UNQLITE_OK) {
 		write_log("create_dir: Create failed - failed to write directory into unqlite: %i\n", rc);
 		error_handler(rc);
@@ -711,16 +727,18 @@ int myfs_mkdir(const char *path, mode_t mode)
 	free_strptr_arr(hier_path, hier_lev);
 	
 	//Now we are in the fcb of the last directory that may exists. Then we will read the dir of this fcb and find appropriate position for a new block
+	//data_id will be used for storing the directory.
 	uuid_t data_id;
 	rc = find_free(s_fcb, &data_id);
 	if (rc != 0) {
 		return rc;
 	}
 	
-	//Create the new directory
-	
-	
-
+	//Create the new directory. data id is pointing to fcb.
+	rc = create_new_dir(&data_id, mode);
+	if (rc != 0) {
+		return rc;
+	}
 	return 0;
 }
 
