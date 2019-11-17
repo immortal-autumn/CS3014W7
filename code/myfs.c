@@ -21,6 +21,44 @@ unqlite_int64 root_object_size_value = sizeof(myfcb);
 unqlite *pDb;
 uuid_t zero_uuid;
 
+//functions
+int fetch_ent(uuid_t *key, myent *ent) {
+	int rc;
+	unqlite_int64 nBytes = sizeof(myent);
+	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, ent, &nBytes);
+	if (rc != UNQLITE_OK) {
+		write_log("fetch_ent failed: error code - %i\n", rc);
+		return -EIO;
+	}
+	if (nBytes != sizeof(myent)) {
+		write_log("fetch_ent failed: invalid fetch size - %i\n", nBytes);
+		return -EIO;
+	}
+	return 0;
+}
+
+int fetch_fcb(uuid_t *key, myfcb *fcb) {
+	int rc;
+	unqlite_int64 nBytes = sizeof(myfcb);
+	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, fcb, &nBytes);
+	if (rc != UNQLITE_OK) {
+		write_log("fetch_ent failed: error code - %i\n", rc);
+		return -EIO;
+	}
+	if (nBytes != sizeof(myfcb)) {
+		write_log("fetch_ent failed: invalid fetch size - %i\n", nBytes);
+		return -EIO;
+	}
+	return 0;
+}
+
+int store_ent(uuid_t *key, myent *ent) {
+	int rc;
+}
+
+int store_fcb(uuid_t *key, myfcb *fcb) {
+	int rc;
+}
 
 // The functions which follow are handler functions for various things a filesystem needs to do:
 // reading, getting attributes, truncating, etc. They will be called by FUSE whenever it needs
@@ -34,15 +72,11 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if(strcmp(path, "/")==0){
-		stbuf->st_mode = the_root_fcb.root_mode;
+		stbuf->st_mode = the_root_fcb.mode;
 		stbuf->st_nlink = 2;
-		stbuf->st_uid = the_root_fcb.root_uid;
-		stbuf->st_gid = the_root_fcb.root_gid;
+		stbuf->st_uid = the_root_fcb.uid;
+		stbuf->st_gid = the_root_fcb.gid;
 	}else{
-		// char* token = strtok(path, "/");
-		// while(token != NULL) {
-		// 	token = strtok(NULL, "/")
-		// }
 		if (strcmp(path, the_root_fcb.path) == 0) {
 			stbuf->st_mode = the_root_fcb.mode;
 			stbuf->st_nlink = 1;
@@ -366,52 +400,6 @@ static struct fuse_operations myfs_oper = {
 	.release	= myfs_release,
 };
 
-void init_dir() {
-	printf("Hierarchy:\n");
-	int rc;
-
-	//root directory access block
-	access_block root_dir;
-
-	//Set the key value
-	uuid_t *data_id = &(the_root_fcb.file_data_id);
-
-	//Value for storing the data length
-	unqlite_int64 nBytes;
-
-	//Try to fetch root hierarchy element from the root_fcb
-	rc = unqlite_kv_fetch(pDb,data_id,KEY_SIZE,&root_dir,&nBytes);
-
-	//if it doesn't exist, we need to create it and writeback
-	//This will be the hierarchy system for the root fcb
-	if (rc == UNQLITE_NOTFOUND) {
-		printf("Hierarchy: Not found - Creating hierarchy system:\n");
-
-		//clear everything in the root_dir
-		memset(&root_dir, 0, sizeof(access_block));
-		
-		//Initialisation
-		uuid_copy(root_dir.current, the_root_fcb.file_data_id);
-		uuid_copy(root_dir.parent, zero_uuid);
-
-		//Write back
-		printf("Writing to .db file:\n");
-		rc = unqlite_kv_store(pDb, data_id, KEY_SIZE, &root_dir, sizeof(access_block));
-
-		if(rc != UNQLITE_OK) error_handler(rc);
-	}
-	else
-    {
-     	if(rc==UNQLITE_OK) { 
-	 		printf("init_store: root directory was found\n"); 
-        }
-	 	if(nBytes!=sizeof(access_block)) { 
-			printf("Data object has unexpected size %llu. Doing nothing.\n", nBytes);
-			exit(-1);
-        }
-    }
-}
-
 
 // Initialise the in-memory data structures from the store. If the root object (from the store) is empty then create a root fcb (directory)
 // and write it to the store. Note that this code is executed outide of fuse. If there is a failure then we have failed toi initlaise the 
@@ -444,16 +432,14 @@ void init_fs(){
 				
         // Sensible initialisation for the root FCB
 		//See 'man 2 stat' and 'man 2 chmod'.
-		the_root_fcb.root_mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
-		the_root_fcb.root_mtime = time(0);
-		the_root_fcb.root_uid = getuid();
-		the_root_fcb.root_gid = getgid();
-		uuid_generate(the_root_fcb.file_data_id);
+		the_root_fcb.mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
+		the_root_fcb.mtime = time(0);
+		the_root_fcb.uid = getuid();
+		the_root_fcb.gid = getgid();
 		
         // Write the root FCB
 		printf("init_fs: writing root fcb\n");
 		rc = unqlite_kv_store(pDb,ROOT_OBJECT_KEY,ROOT_OBJECT_KEY_SIZE,&the_root_fcb,sizeof(myfcb));
-
         if( rc != UNQLITE_OK ) error_handler(rc);
     } 
     else
@@ -482,8 +468,7 @@ int main(int argc, char *argv[]){
 	
 	//Initialise the file system. This is being done outside of fuse for ease of debugging.
 	init_fs();
-	init_dir();
-
+		
     // Now pass our function pointers over to FUSE, so they can be called whenever someone
     // tries to interact with our filesystem. The internal state contains a file handle
     // for the logging mechanism

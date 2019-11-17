@@ -1,6 +1,6 @@
 //#include "fs.h"
 #include <uuid/uuid.h>
-#include "unqlite.h"
+#include <unqlite.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,49 +10,61 @@
 #include <time.h>
 #include <fuse.h>
 
-#define MY_MAX_PATH 100
+#define MY_MAX_PATH 255
 #define MY_MAX_FILE_SIZE 1000
-#define DIRECT_SIZE 12
-#define INDIRECT_SIZE 15
+#define MY_MAX_INDIRECT 15
+#define MY_MAX_DIRECT 13
+#define MY_MAX_FREE 14
 
-//Single indirect node
-typedef struct _indirect {
-    uuid_t indirect_access[INDIRECT_SIZE];
-} indirect;
 
+// This is a starting File Control Block for the 
+// simplistic implementation provided.
+//
+// It combines the information for the root directory "/"
+// and one single file inside this directory. This is why there
+// is a one file limit for this filesystem
+//
+// Obviously, you will need to be change this into a
+// more sensible FCB to implement a proper filesystem
 //directory access block
-typedef struct _access
-{
-    int size;
-    uuid_t direct_access[DIRECT_SIZE];
-    uuid_t single_indirect;
-    uuid_t double_indirect;
-    uuid_t Triple_indirect;
-} access_block;
 
+typedef struct _indirected {
+    uuid_t indirect[MY_MAX_INDIRECT];
+} ind;
 
-//file control block
-typedef struct _myfcb {
-    char path[MY_MAX_PATH];
-    uuid_t file_data_id;
-    
+//file control block:
+//inode structure: first 13 with direct access, next three with single indirect access, double indirect access and triple indirect access
+//In basic I will only implement the direct access
+typedef struct _myfcb {    
     // see 'man 2 stat' and 'man 2 chmod'
     //meta-data for the 'file'
-    uid_t  uid;     /* user */
-    gid_t  gid;     /* group */
-    mode_t mode;    /* protection */
-    time_t mtime;   /* time of last modification */
-    time_t ctime;   /* time of last change to meta-data (status) */
-    time_t atime;  /* time of last access */
-    off_t size;     /* size */
-    
-    // //meta-data for the root thing (directory)
-    // uid_t  root_uid;    /* user */
-    // gid_t  root_gid;    /* group */
-    // mode_t root_mode;   /* protection */
-    // time_t root_mtime;  /* time of last modification */
+    uid_t  uid;                     /* user */
+    gid_t  gid;                     /* group */
+    mode_t mode;                    /* protection */
+    time_t mtime;                   /* time of last modification */
+    time_t ctime;                   /* time of last change to meta-data (status) */
+    nlink_t nlink;                  /* Number of hard link associate with it */
+    off_t size;                     /* size */
+    uuid_t direct[MY_MAX_DIRECT];   /* Direct access */
+    uuid_t single_indirect;         /* Single indirect access */
+    uuid_t double_indirect;         /* Double indirect access */
+    uuid_t triple_indirect;         /* Triple indirect access */
 } myfcb;
 
+typedef struct _entry {
+    uuid_t fcb_id;
+    char name[MY_MAX_PATH];
+} myent;
+
+typedef struct _file_data {
+    size_t size;
+    char data[MY_MAX_FILE_SIZE];
+} myfile;
+
+typedef struct _free_list {
+    uuid_t free_node[MY_MAX_FREE];
+    uuid_t next;
+} myfree;
 
 // Some other useful definitions we might need
 
