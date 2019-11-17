@@ -76,10 +76,43 @@ int store_fcb(uuid_t *key, myfcb *fcb) {
 	return 0;
 }
 
-//functions on reading directory
-//In this case I only consider basic
-int find_path(const char *path) {
+//Find required path with its name and change fcb to new fcb
+int find_path_with_name(char* path, myfcb* fcb) {
+	int rc;
+	myent ent;
+	for (int i = 0;i < MY_MAX_DIRECT; i++) {
+		if (uuid_compare(zero_uuid,fcb -> direct[i]) != 0) {
+			if((rc = fetch_ent(&(fcb->direct[i]), &ent)) != 0) {
+				write_log("find_path_with_name: Fetch_ent_failed. %i\n", rc);
+				return rc;
+			}
+			if (strcmp(path, ent.name) == 0) {
+				if((rc = fetch_fcb(&(ent.fcb_id), fcb), &ent)) != 0) {
+					write_log("find_path_with_name: Fetch_fcb_failed. %i\n", rc);
+					return rc;
+				}
+				return 0;
+			}
+		}
+	}
+	return -ENOENT;
+}
 
+//functions on reading directory
+//In this case I only consider basic and now fcb is the block that we want
+int find_path(const char *path, myfcb *fcb) {
+	char* s_path = strdup(path); 		//Copy path itself to prevent interrupt const value
+	char* token = strtok(s_path, "/");  //Divide the path into tokens
+	*fcb = the_root_fcb;
+	int rc;
+	while (token != NULL) {
+		if ((rc = find_path_with_name(token, fcb))!=0) {
+			write_log("find_path: error with code %i", rc);
+			return rc;
+		}
+		token = strtok(0, "/");
+	}
+	return 0;
 }
 
 //functions on 
@@ -93,28 +126,26 @@ int find_path(const char *path) {
 static int myfs_getattr(const char *path, struct stat *stbuf) {
 
 	write_log("myfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, stbuf);
+	myfcb fcbptr;
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if(strcmp(path, "/")==0){
-		stbuf->st_mode = the_root_fcb.mode;
-		stbuf->st_nlink = 2;
-		stbuf->st_uid = the_root_fcb.uid;
-		stbuf->st_gid = the_root_fcb.gid;
+		fcbptr = the_root_fcb;
 	}else{
-		if (strcmp(path, the_root_fcb.path) == 0) {
-			stbuf->st_mode = the_root_fcb.mode;
-			stbuf->st_nlink = 1;
-			stbuf->st_mtime = the_root_fcb.mtime;
-			stbuf->st_ctime = the_root_fcb.ctime;
-			stbuf->st_size = the_root_fcb.size;
-			stbuf->st_uid = the_root_fcb.uid;
-			stbuf->st_gid = the_root_fcb.gid;
-		}else{
-			write_log("myfs_getattr - ENOENT");
-			return -ENOENT;
+		int rc;
+		if ((rc = find_path(path, &fcbptr)) != 0) {
+			write_log("myfs_getattr: failed with %i\n", rc);
+			return rc;
 		}
 	}
 	
+	stbuf -> st_gid = fcbptr.gid;
+	stbuf -> st_mode = fcbptr.mode;
+	stbuf -> st_nlink = fcbptr.nlink;
+	stbuf -> st_mtime = fcbptr.mtime;
+	stbuf -> st_ctime = fcbptr.ctime;
+	stbuf -> st_size = fcbptr.size;
+	stbuf -> st_uid = fcbptr.uid;
 	return 0;
 }
 
@@ -138,13 +169,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 	filler(buf, "..", NULL, 0);
 
     // The root FCB is in memory, so we simply read the name of the file from the path variable inside it
-	char *pathP = (char*)&(the_root_fcb.path);
 
-	if(*pathP!='\0'){
-		// drop the leading '/';
-		pathP++;
-		filler(buf, pathP, NULL, 0);
-	}
 
     // Only one file, so nothing else to do
 	
@@ -460,6 +485,8 @@ void init_fs(){
 		the_root_fcb.mtime = time(0);
 		the_root_fcb.uid = getuid();
 		the_root_fcb.gid = getgid();
+		the_root_fcb.nlink = 2;
+		the_root_fcb.nlink = sizeof(myfcb);
 		
         // Write the root FCB
 		printf("init_fs: writing root fcb\n");
