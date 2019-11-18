@@ -32,12 +32,12 @@ int fetch_ent(uuid_t *key, myent *ent) {
 		write_log("fetch_ent failed: invalid fetch size - %i, want: %i\n", nBytes, sizeof(myent));
 		return rc;
 	}
-	return 0;
 	rc = unqlite_kv_fetch(pDb, key, KEY_SIZE, ent, &nBytes);
 	if (rc != UNQLITE_OK) {
 		write_log("fetch_ent failed: error code - %i\n", rc);
 		return rc;
 	}
+	return 0;
 }
 
 int fetch_fcb(uuid_t *key, myfcb *fcb) {
@@ -105,48 +105,50 @@ int store_fcb(uuid_t *key, myfcb *fcb) {
 }
 
 //Find required path with its name and change fcb to new fcb
-int find_path_with_name(char* path, myfcb* fcb) {
-	int rc;
-	myent ent;
-	for (int i = 0;i < MY_MAX_DIRECT; i++) {
-		if (uuid_compare(zero_uuid,fcb -> direct[i]) != 0) {
-			if((rc = fetch_ent(&(fcb->direct[i]), &ent)) != 0) {
-				write_log("find_path_with_name: %s Fetch_ent_failed. %i\n", path, rc);
-				return rc;
-			}
-			if (strcmp(path, ent.name) == 0) {
-				if((rc = fetch_fcb(&(ent.fcb_id), fcb), &ent) != 0) {
-					write_log("find_path_with_name: %s Fetch_fcb_failed. %i\n", path, rc);
-					return rc;
-				}
-				return 0;
-			}
-		}
-	}
-	return -ENOENT;
-}
+// int find_path_with_name(char* path, myfcb* fcb) {
+// 	int rc;
+// 	myent ent;
+// 	for (int i = 0;i < MY_MAX_DIRECT; i++) {
+// 		if (uuid_compare(zero_uuid,fcb -> direct[i]) != 0) {
+// 			if((rc = fetch_ent(&(fcb->direct[i]), &ent)) != 0) {
+// 				write_log("find_path_with_name: %s Fetch_ent_failed. %i\n", path, rc);
+// 				return rc;
+// 			}
+// 			if (strcmp(path, ent.name) == 0) {
+// 				if((rc = fetch_fcb(&(ent.fcb_id), fcb), &ent) != 0) {
+// 					write_log("find_path_with_name: %s Fetch_fcb_failed. %i\n", path, rc);
+// 					return rc;
+// 				}
+// 				return 0;
+// 			}
+// 			// write_log("path required name is: %s, want: %s\n", path, ent.name); //name is not the same - 18/NOV
+// 		}
+// 	}
+// 	return -ENOENT;
+// }
 
 //functions on reading directory
 //In this case I only consider basic and now fcb is the block that we want
-int find_path(const char *path, myfcb *fcb) {
-	fcb = &the_root_fcb;
-	if (strcmp(path, "/") == 0) {
-		return 0; //return the root fcb
-	}
+// int find_path(const char *path, myfcb *fcb) {
+// 	fcb = &the_root_fcb;
+// 	if (strcmp(path, "/") == 0) {
+// 		return 0; //return the root fcb
+// 	}
 
-	char* s_path = strdup(path); 		//Copy path itself to prevent interrupt const value
-	char* token = strtok(s_path, "/");  //Divide the path into tokens
-	int rc;
+// 	char* s_path = strdup(path); 		//Copy path itself to prevent interrupt const value
+// 	char* token = strtok(s_path, "/");  //Divide the path into tokens
+// 	int rc;
 	
-	while (token != NULL) {
-		if ((rc = find_path_with_name(token, fcb))!=0) {
-			write_log("find_path: error with finding %s with code %i\n", token, rc);
-			return rc;
-		}
-		token = strtok(NULL, "/");
-	}
-	return 0;
-}
+// 	while (token != NULL) {
+// 		write_log("test - find %s\n", token);
+// 		if ((rc = find_path_with_name(token, fcb))!=0) {
+// 			write_log("find_path: error with finding %s with code %i\n", token, rc);
+// 			return rc;
+// 		}
+// 		token = strtok(NULL, "/");
+// 	}
+// 	return 0;
+// }
 
 //Functions on entrance finding
 int find_entrance_with_name(char* path, myfcb *fcb, myent *ent) {
@@ -175,11 +177,13 @@ int find_entrance(const char *path, myfcb* fcb, myent *ent) {
 	char* token = strtok(s_path, "/");  //Divide the path into tokens
 	*fcb = the_root_fcb;
 	int rc;
+
 	while (token != NULL) {
 		if ((rc = find_entrance_with_name(token, fcb, ent))!=0) {
 			write_log("find_entrance: error with code %i\n", rc);
 			return rc;
 		}
+		write_log("find_ent: %s - expect %s\n", ent->name, token);
 		token = strtok(0, "/");
 	}
 	return 0;
@@ -195,7 +199,7 @@ int get_path_filename(const char *path, char ** file, char ** directory) {
 		*directory = "/";
 	}
 	else {
-		*directory = last - 1;
+		*directory = pathdup;  //<= changed
 	}
 	return 0;
 }
@@ -210,6 +214,7 @@ int create_fcb_with_ent(mode_t mode, char* name, myfcb *newFCB, myent* newENT) {
 	newFCB->uid = context -> uid;
 	newFCB->gid = context -> gid;
 	newFCB->mode = mode; 
+	newFCB->size = sizeof(myfcb);
 
 	//setup entrance
 	strcpy(newENT->name, name);
@@ -237,6 +242,7 @@ int free_space_generator(uuid_t* uuid, myent* ent) {
 		write_log("store_fcb: failed with err code %i\n", rc);
 		return rc;
 	}
+	//fetch testing
 	if ((rc = fetch_fcb(&(ent->fcb_id), NULL)) != 0) {
 		write_log("store_fcb: failed to fetch with error code %i", rc);
 		return rc;
@@ -321,27 +327,29 @@ int create_new(char* path, char* name, mode_t mode) {
 static int myfs_getattr(const char *path, struct stat *stbuf) {
 
 	write_log("myfs_getattr(path=\"%s\", statbuf=0x%08x)\n", path, stbuf);
-	myfcb fcbptr;
+	myfcb myfcb;
+	myent myent;
 
 	memset(stbuf, 0, sizeof(struct stat));
 
 	if(strcmp(path, "/") ==0){
-		fcbptr = the_root_fcb;
+		myfcb = the_root_fcb;
 	}else{
 		int rc;
-		if ((rc = find_path(path, &fcbptr)) != 0) {
+		if ((rc = find_entrance(path, &myfcb, &myent)) != 0) {
 			write_log("myfs_getattr: failed with %i\n", rc);
 			return rc;
 		}
 	}
 	
-	stbuf -> st_gid = fcbptr.gid;
-	stbuf -> st_mode = fcbptr.mode;
-	stbuf -> st_nlink = fcbptr.nlink;
-	stbuf -> st_mtime = fcbptr.mtime;
-	stbuf -> st_ctime = fcbptr.ctime;
-	stbuf -> st_size = fcbptr.size;
-	stbuf -> st_uid = fcbptr.uid;
+	stbuf -> st_gid = myfcb.gid;
+	stbuf -> st_mode = myfcb.mode;
+	stbuf -> st_nlink = myfcb.nlink;
+	stbuf -> st_mtime = myfcb.mtime;
+	stbuf -> st_ctime = myfcb.ctime;
+	stbuf -> st_size = myfcb.size;
+	stbuf -> st_uid = myfcb.uid;
+
 	return 0;
 }
 
@@ -359,6 +367,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 	filler(buf, "..", NULL, 0);
 
 	myfcb fcb;
+	myent ent;
 	int rc;
 	// write_log("pointer - %s\n", path);
 
@@ -366,13 +375,12 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 		fcb = the_root_fcb;
 	}
 	else{
-		if ((rc = find_path(path, &fcb)) != 0) {
+		if ((rc = find_entrance(path, &fcb, &ent)) != 0) {
 			write_log("readdir(): read the directory failed in find_path\n");
 			return rc;
 		}
 	}
 
-	myent ent;
 	for (int i = 0; i < MY_MAX_DIRECT; i++) {
 		if (uuid_compare(zero_uuid, fcb.direct[i]) != 0) {
 			if ((rc = fetch_ent(&(fcb.direct[i]), &ent)) != 0) {
@@ -551,8 +559,9 @@ int myfs_truncate(const char *path, off_t newsize){
 	}
 	
     myfcb fcb;
+	myent ent;
 	int rc;
-	if((rc = find_path(path, &fcb)) != 0) {
+	if((rc = find_entrance(path, &fcb, &ent)) != 0) {
 		write_log("truncate: Error wil code %i", rc);
 	}
 	myfile oldfile;
@@ -563,9 +572,15 @@ int myfs_truncate(const char *path, off_t newsize){
 		return rc;
 	}
 	memcpy(&newfile, &oldfile, oldfile.size);
+	newfile.size = newsize;
+	fcb.mtime = time(NULL);
+
 	if ((rc = store_file(&fcb.direct[0], &newfile)) != 0) {
-		write_log("truncate: Error wil code %i", rc);
+		write_log("truncate: Error with code %i", rc);
 		return rc;
+	}
+	if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
+		write_log("truncate: Error with code %i", rc);
 	}
 	return 0;
 }
@@ -704,6 +719,8 @@ static struct fuse_operations myfs_oper = {
 	.flush		= myfs_flush,
 	.release	= myfs_release,
 	.mkdir 		= myfs_mkdir,
+	.chmod  	= myfs_chmod,
+	.chown 		= myfs_chown,
 };
 
 
@@ -738,7 +755,8 @@ void init_fs(){
         // Sensible initialisation for the root FCB
 		//See 'man 2 stat' and 'man 2 chmod'.
 		the_root_fcb.mode |= S_IFDIR|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH; 
-		the_root_fcb.mtime = time(0);
+		the_root_fcb.mtime = time(NULL);
+		the_root_fcb.ctime = time(NULL);
 		the_root_fcb.uid = getuid();
 		the_root_fcb.gid = getgid();
 		the_root_fcb.nlink = 2;
