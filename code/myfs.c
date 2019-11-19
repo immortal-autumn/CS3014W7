@@ -213,7 +213,9 @@ int create_fcb_with_ent(mode_t mode, char* name, myfcb *newFCB, myent* newENT) {
 	newFCB->gid = context -> gid;
 	newFCB->mode = mode; 
 	newFCB->size = sizeof(myfcb);
-
+	time_t now = time(NULL);
+	newFCB->mtime=now;
+	newFCB->ctime=now;
 	//setup entrance
 	strcpy(newENT->name, name);
 	uuid_generate(newENT->fcb_id);
@@ -285,6 +287,8 @@ int remove_node(char* filepath, char* filename) {
 				if (strcmp(ent.name, filename) == 0) {
 					deletion(&(the_root_fcb.direct[i]));
 					uuid_clear(the_root_fcb.direct[i]);
+					the_root_fcb.mtime = time(NULL);
+					the_root_fcb.ctime = time(NULL);
 					if((rc = unqlite_kv_store(pDb,ROOT_OBJECT_KEY,ROOT_OBJECT_KEY_SIZE,&the_root_fcb,sizeof(myfcb))) != 0) {
 						write_log("remove_node: root_free_space_gen: Root FCB write_back failed %i", rc);
 						return rc;
@@ -309,9 +313,12 @@ int remove_node(char* filepath, char* filename) {
 				write_log("remove_node: fetch_ent: failed with %i\n", rc);
 				return rc;
 			}
-			if (strcmp(ent.name, filename) == 0) {
+			// write_log("expected - %s | get - %s\n", ent.name, filename);
+			if (strcmp(tmp.name, filename) == 0) {
 				deletion(&(fcb.direct[i]));
 				uuid_clear(fcb.direct[i]);
+				fcb.ctime = time(NULL);
+				fcb.mtime = time(NULL);
 				if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
 					write_log("remove_node: free_space: write_back failed with %i", rc);
 					return rc;
@@ -682,6 +689,9 @@ int myfs_chmod(const char *path, mode_t mode){
 	{
 		fcb.mode = mode | S_IFREG;
 	}
+	time_t now = time(NULL);
+	fcb.mtime=now;
+	fcb.ctime=now;
 	if((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
 		write_log("chmod: store_FCB: permission change failed\n");
 		return rc;
@@ -705,6 +715,9 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid){
 	}
 	fcb.uid = uid;
 	fcb.gid = gid;
+	time_t now = time(NULL);
+	fcb.mtime=now;
+	fcb.ctime=now;
 	if((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
 		write_log("chown: store_fcb: permission change failed\n");
 		return rc;

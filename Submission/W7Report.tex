@@ -51,7 +51,7 @@
 	It is quite complex and lots of duplicates when trying to fetch and store the data block. So I make things modular such as to define functions of reading and fetching, which actually prevented lots of duplicates.
 	\subsection*{writing to the file}
 	Writing to the file will create a file structure first, then create the entry fcb pair if it does not exist. The file structure will link to the first fcb direct access and the fcb should be write back with modification. 
-	\subsection*{write_log}
+	\subsection*{write log}
 	Write log can be regarded as panic in go. It will write which part goes wrong and error will return from each functions. If it succeed, only working log will be returned.
 	\section{Testing}
 	\subsection*{chmod and chown(Figure 3)}
@@ -90,6 +90,7 @@
 	\caption{read and write}
 	\end{figure}
 	\section{Summary}
-	Several functions has not implemented and there are still lots of bugs available. I am currently in my lowest expect for my final grades and feels quite upset.\par
-	This Practical is so hard and time is not generally enough for finishing all of it. I am sad about not finishing the whole implementation and leave a program full of bugs. But I actually work for 40+ hours without any sleep, just my brain has stopped running and I am so tired to think of anything. The only thing I can do is to finish the report and show my design and implementations I have finished. I am so sorry about that.\par
+	Luckily, basic implementation has all done and returning message is not listed in the requirement. Several optional functions has not implemented and there are still lots of bugs available such as returning messages. The messages returned by UNQLITE is not the same as the message returned from FUSE. I am currently in my lowest expect for my final grades and feels quite upset.\\\\
+	I have actually learned and practices a lot on operating on passing a pointer to the functions. Even I have not implemented all what I have designed and there is no extension that I have done, I have noticed my disadvantages on programming, which is I always regard the question more complex such as arbitrary limit, I have though a lot about it and finally I found the arbitrary limit does not means I have to store 10000+ for the file.\\\\
+	Actually I am really upset these days, I have worked for 30+ hours without any sleep in Saturday, but what I achieved is just a half of basic and with full of bugs. Panic cannot solve problems, a better way to solve panic could be start my working much earlier and do as much as I can everyday.
 \end{document}
