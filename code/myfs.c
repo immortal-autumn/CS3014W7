@@ -15,12 +15,13 @@
 // The one and only fcb that this implmentation will have. We'll keep it in memory. A better 
 // implementation would, at the very least, cache it's root directroy in memory. 
 myfcb the_root_fcb;
-myent the_root_ent;
+// myent the_root_ent;
 unqlite_int64 root_object_size_value = sizeof(myfcb);
 
 // This is the pointer to the database we will use to store all our files
 unqlite *pDb;
 uuid_t zero_uuid;
+
 
 //functions on save and read
 int fetch_ent(uuid_t *key, myent *ent) {
@@ -104,51 +105,48 @@ int store_fcb(uuid_t *key, myfcb *fcb) {
 	return 0;
 }
 
-//Find required path with its name and change fcb to new fcb
-// int find_path_with_name(char* path, myfcb* fcb) {
-// 	int rc;
-// 	myent ent;
-// 	for (int i = 0;i < MY_MAX_DIRECT; i++) {
-// 		if (uuid_compare(zero_uuid,fcb -> direct[i]) != 0) {
-// 			if((rc = fetch_ent(&(fcb->direct[i]), &ent)) != 0) {
-// 				write_log("find_path_with_name: %s Fetch_ent_failed. %i\n", path, rc);
-// 				return rc;
-// 			}
-// 			if (strcmp(path, ent.name) == 0) {
-// 				if((rc = fetch_fcb(&(ent.fcb_id), fcb), &ent) != 0) {
-// 					write_log("find_path_with_name: %s Fetch_fcb_failed. %i\n", path, rc);
-// 					return rc;
-// 				}
-// 				return 0;
-// 			}
-// 			// write_log("path required name is: %s, want: %s\n", path, ent.name); //name is not the same - 18/NOV
-// 		}
-// 	}
-// 	return -ENOENT;
-// }
 
-//functions on reading directory
-//In this case I only consider basic and now fcb is the block that we want
-// int find_path(const char *path, myfcb *fcb) {
-// 	fcb = &the_root_fcb;
-// 	if (strcmp(path, "/") == 0) {
-// 		return 0; //return the root fcb
-// 	}
+//functions on delete. Key is the key of the entrance
+int deletion(uuid_t *key) {
+	int rc;
+	myent ent;
+	myfcb fcb;
 
-// 	char* s_path = strdup(path); 		//Copy path itself to prevent interrupt const value
-// 	char* token = strtok(s_path, "/");  //Divide the path into tokens
-// 	int rc;
-	
-// 	while (token != NULL) {
-// 		write_log("test - find %s\n", token);
-// 		if ((rc = find_path_with_name(token, fcb))!=0) {
-// 			write_log("find_path: error with finding %s with code %i\n", token, rc);
-// 			return rc;
-// 		}
-// 		token = strtok(NULL, "/");
-// 	}
-// 	return 0;
-// }
+	//fetch fcb and entrance node
+	if ((rc = fetch_ent(key, &ent)) != 0) {
+		write_log("deletion: fetch entrance failed with %i\n", rc);
+		return rc;
+	}
+
+	if ((rc = fetch_fcb(&(ent.fcb_id), &fcb)) != 0) {
+		write_log("deletion: fetch fcb failed with %i\n", rc);
+		return rc;
+	}
+
+	//delete all files
+	for (int i = 0; i < MY_MAX_DIRECT; i++) {
+		if (uuid_compare(fcb.direct[i], zero_uuid) != 0) {
+			if ((rc = unqlite_kv_delete(pDb, &(fcb.direct[i]), KEY_SIZE)) != 0) {
+				write_log("deletion: delete file failed.");
+				return rc;
+			}
+		}
+	}
+
+	//delete fcb
+	if ((rc = unqlite_kv_delete(pDb, &(ent.fcb_id), KEY_SIZE)) != 0) {
+		write_log("deletion: delete entrance failed.");
+		return rc;
+	}
+
+	//delete entry
+	if ((rc = unqlite_kv_delete(pDb, key, KEY_SIZE)) != 0) {
+		write_log("deletion: delete entrance failed.\n");
+		return rc;
+	}
+
+	return 0;
+}
 
 //Functions on entrance finding
 int find_entrance_with_name(char* path, myfcb *fcb, myent *ent) {
@@ -183,7 +181,7 @@ int find_entrance(const char *path, myfcb* fcb, myent *ent) {
 			write_log("find_entrance: error with code %i\n", rc);
 			return rc;
 		}
-		write_log("find_ent: %s - expect %s\n", ent->name, token);
+		// write_log("find_ent: %s - expect %s\n", ent->name, token);
 		token = strtok(0, "/");
 	}
 	return 0;
@@ -268,6 +266,63 @@ int root_free_space_gen(uuid_t *uuid) {
 	return 0;
 }
 
+//find the path, unlink the entrance
+//add to free list(Extension)
+int remove_node(char* filepath, char* filename) {
+	int rc;
+	//Following two will be used for storing path fcb and ent
+	myfcb fcb;
+	myent ent;
+
+	//If it is in the root dir
+	if (strcmp("/", filepath) == 0) {
+		for (int i = 0; i < MY_MAX_DIRECT; i++) {
+			if (uuid_compare(the_root_fcb.direct[i], zero_uuid) != 0) {
+				if ((rc = fetch_ent(&(the_root_fcb.direct[i]), &ent)) != 0) {
+					write_log("remove_node: fetch_ent failed with %i\n", rc);
+					return rc;
+				}
+				if (strcmp(ent.name, filename) == 0) {
+					deletion(&(the_root_fcb.direct[i]));
+					uuid_clear(the_root_fcb.direct[i]);
+					if((rc = unqlite_kv_store(pDb,ROOT_OBJECT_KEY,ROOT_OBJECT_KEY_SIZE,&the_root_fcb,sizeof(myfcb))) != 0) {
+						write_log("root_free_space_gen: Root FCB write_back failed %i", rc);
+						return rc;
+					}
+					return 0;
+				}
+			}
+		}
+		return -ENOENT;
+	}
+
+	fcb = the_root_fcb;
+	if ((rc = find_entrance(filepath, &fcb, &ent)) != 0) {
+		write_log("remove_node: find_entrance failed: %i", rc);
+		return rc;
+	}
+
+	myent tmp;
+	for (int i = 0; i < MY_MAX_DIRECT; i++) {
+		if (uuid_compare(fcb.direct[i], zero_uuid) != 0) {
+			if ((rc = fetch_ent(&(fcb.direct[i]), &tmp)) != 0) {
+				write_log("remove_node: fetch_ent failed with %i\n", rc);
+				return rc;
+			}
+			if (strcmp(ent.name, filename) == 0) {
+				deletion(&(fcb.direct[i]));
+				uuid_clear(fcb.direct[i]);
+				if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
+					write_log("free_spce: write_back failed with %i", rc);
+					return rc;
+				}
+				return 0;
+			}
+		}
+	}
+	return -ENOENT;
+}
+
 //create all path does not exist
 int create_new(char* path, char* name, mode_t mode) {
 	int rc; 
@@ -315,6 +370,19 @@ int create_new(char* path, char* name, mode_t mode) {
 		return rc;
 	}
 
+	return 0;
+}
+
+//This will create an empty file
+int create_file(uuid_t* key, myfile* file) {
+	int rc;
+	memset(file, 0, sizeof(myfile));
+
+	//initialise
+	if ((rc = store_file(key, file)) != 0) {
+		write_log("create_file: new file create failed. error: %i\n", rc);
+		return rc;
+	}
 	return 0;
 }
 
@@ -416,10 +484,9 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset, str
 		write_log("myfs_read: Find entrance failed.\n");
 		return rc;
 	}
-
+	
 	if ((rc = fetch_file(&(ptrfcb.direct[0]), &file)) != 0) {
-		write_log("fetch_file: Failed to fetch the file data.\n");
-		return rc;
+		memset(&file, 0, sizeof(myfile)); //If there is no file block, create one.
 	}
 	
 	len = file.size;
@@ -498,13 +565,6 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 		return 0;
 	}
 	
-	myfile newFile;
-	memset(&newFile, 0, sizeof(myfile));
-
-	// Write the data in-memory.
-    int written = snprintf(newFile.data, MY_MAX_FILE_SIZE, buf);
-	newFile.size = written;
-	
 	//create a new file with filename
 	myfcb newfcb;
 	myent newent;
@@ -524,8 +584,17 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 		write_log("myfs_write: find_free_space failed with %i\n", rc);
 		return rc;
 	}	//Now we get a key for storing the file block
+	
+	myfile newFile;
+	if ((rc = create_file(&key, &newFile)) != 0) {
+		write_log("myfs_write: create file failed with rc = %i\n", rc);
+	}
 
-	// Write the data block to the store.
+	// Write the data in-memory and into data struct
+    int written = snprintf(newFile.data, MY_MAX_FILE_SIZE, buf);
+	newFile.size = written;
+
+	// Write the data block back to the store.
 	if ((rc = store_file(&key, &newFile)) != 0) {
 		write_log("Store file failed with error %i.\n", rc);
 		return rc;
@@ -536,9 +605,9 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 	time_t now = time(NULL);
 	newfcb.mtime=now;
 	newfcb.ctime=now;
+
 	// Write the fcb to the store.
     // Write the data block to the store.
-
 	if ((rc = store_fcb(&(newent.fcb_id), &newfcb)) != 0) {
 		write_log("Store file failed.\n");
 		return rc;
@@ -658,16 +727,20 @@ int myfs_mkdir(const char *path, mode_t mode){
 // Read 'man 2 unlink'.
 int myfs_unlink(const char *path){
 	write_log("myfs_unlink: %s\n",path);	
-	
-    return 0;
+	char* filepath;
+	char* filename;
+	get_path_filename(path, &filename, &filepath);
+    return remove_node(filepath, filename);
 }
 
 // Delete a directory.
 // Read 'man 2 rmdir'.
 int myfs_rmdir(const char *path){
     write_log("myfs_rmdir: %s\n",path);	
-	
-    return 0;
+	char* filepath;
+	char* filename;
+	get_path_filename(path, &filename, &filepath);
+    return remove_node(filepath, filename);
 }
 
 // OPTIONAL - included as an example
@@ -721,6 +794,8 @@ static struct fuse_operations myfs_oper = {
 	.mkdir 		= myfs_mkdir,
 	.chmod  	= myfs_chmod,
 	.chown 		= myfs_chown,
+	.unlink 	= myfs_unlink,
+	.rmdir		= myfs_rmdir,
 };
 
 
