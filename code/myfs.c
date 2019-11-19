@@ -79,7 +79,7 @@ int store_file(uuid_t *key, myfile *file) {
 	int rc;
 	rc = unqlite_kv_store(pDb, key, KEY_SIZE, file, sizeof(myfile));
 	if (rc != UNQLITE_OK) {
-		write_log("Store entrance failed\n");
+		write_log("store_file: Store file failed with %i\n", rc);
 		return rc;
 	}
 	return 0;
@@ -89,7 +89,7 @@ int store_ent(uuid_t *key, myent *ent) {
 	int rc;
 	rc = unqlite_kv_store(pDb, key, KEY_SIZE, ent, sizeof(myent));
 	if (rc != UNQLITE_OK) {
-		write_log("store_failed: Store entrance failed\n");
+		write_log("store_ent: store entrance failed\n");
 		return rc;
 	}
 	return 0;
@@ -99,7 +99,7 @@ int store_fcb(uuid_t *key, myfcb *fcb) {
 	int rc;
 	rc = unqlite_kv_store(pDb, key, KEY_SIZE, fcb, sizeof(myfcb));
 	if (rc != UNQLITE_OK) {
-		write_log("Store entrance failed\n");
+		write_log("store_fcb: store fcb failed\n");
 		return rc;
 	}
 	return 0;
@@ -154,12 +154,12 @@ int find_entrance_with_name(char* path, myfcb *fcb, myent *ent) {
 	for (int i = 0;i < MY_MAX_DIRECT; i++) {
 		if (uuid_compare(zero_uuid,fcb -> direct[i]) != 0) {
 			if((rc = fetch_ent(&(fcb->direct[i]), ent)) != 0) {
-				write_log("find_path_with_name: Fetch_ent_failed. %i\n", rc);
+				write_log("find_path_with_name: entrance fetch failed with %i\n", rc);
 				return rc;
 			}
 			if (strcmp(path, ent->name) == 0) {
 				if((rc = fetch_fcb(&(ent->fcb_id), fcb)) != 0) {
-					write_log("find_entrance_with_name: Fetch_fcb_failed. %i\n", rc);
+					write_log("find_entrance_with_name: file control block fetch failed with %i\n", rc);
 					return rc;
 				}
 				return 0;
@@ -178,7 +178,7 @@ int find_entrance(const char *path, myfcb* fcb, myent *ent) {
 
 	while (token != NULL) {
 		if ((rc = find_entrance_with_name(token, fcb, ent))!=0) {
-			write_log("find_entrance: error with code %i\n", rc);
+			write_log("find_entrance: find entrance with name failed with code %i\n", rc);
 			return rc;
 		}
 		// write_log("find_ent: %s - expect %s\n", ent->name, token);
@@ -225,7 +225,7 @@ int free_space_generator(uuid_t* uuid, myent* ent) {
 	myfcb fcb;
 	int rc;
 	if ((rc = fetch_fcb(&(ent->fcb_id), &fcb)) != 0) {
-		write_log("Failed to generate a new free space key.");
+		write_log("free_space_generator: fetch failed - Failed to generate a new free space key.");
 		return rc;
 	}
 	for (int i = 0; i < MY_MAX_DIRECT; i++) {
@@ -237,12 +237,12 @@ int free_space_generator(uuid_t* uuid, myent* ent) {
 	}
 	//write back fcb
 	if ((rc = store_fcb(&(ent->fcb_id), &fcb)) != 0) {
-		write_log("store_fcb: failed with err code %i\n", rc);
+		write_log("free_space_generator: store_fcb: failed with err code %i\n", rc);
 		return rc;
 	}
 	//fetch testing
 	if ((rc = fetch_fcb(&(ent->fcb_id), NULL)) != 0) {
-		write_log("store_fcb: failed to fetch with error code %i", rc);
+		write_log("free_space_generator: fetch_fcb testing: store_fcb: failed to fetch with error code %i", rc);
 		return rc;
 	}
 	return 0;
@@ -286,7 +286,7 @@ int remove_node(char* filepath, char* filename) {
 					deletion(&(the_root_fcb.direct[i]));
 					uuid_clear(the_root_fcb.direct[i]);
 					if((rc = unqlite_kv_store(pDb,ROOT_OBJECT_KEY,ROOT_OBJECT_KEY_SIZE,&the_root_fcb,sizeof(myfcb))) != 0) {
-						write_log("root_free_space_gen: Root FCB write_back failed %i", rc);
+						write_log("remove_node: root_free_space_gen: Root FCB write_back failed %i", rc);
 						return rc;
 					}
 					return 0;
@@ -298,7 +298,7 @@ int remove_node(char* filepath, char* filename) {
 
 	fcb = the_root_fcb;
 	if ((rc = find_entrance(filepath, &fcb, &ent)) != 0) {
-		write_log("remove_node: find_entrance failed: %i", rc);
+		write_log("remove_node: find entrance: find_entrance failed: %i", rc);
 		return rc;
 	}
 
@@ -306,14 +306,14 @@ int remove_node(char* filepath, char* filename) {
 	for (int i = 0; i < MY_MAX_DIRECT; i++) {
 		if (uuid_compare(fcb.direct[i], zero_uuid) != 0) {
 			if ((rc = fetch_ent(&(fcb.direct[i]), &tmp)) != 0) {
-				write_log("remove_node: fetch_ent failed with %i\n", rc);
+				write_log("remove_node: fetch_ent: failed with %i\n", rc);
 				return rc;
 			}
 			if (strcmp(ent.name, filename) == 0) {
 				deletion(&(fcb.direct[i]));
 				uuid_clear(fcb.direct[i]);
 				if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
-					write_log("free_spce: write_back failed with %i", rc);
+					write_log("remove_node: free_space: write_back failed with %i", rc);
 					return rc;
 				}
 				return 0;
@@ -380,7 +380,7 @@ int create_file(uuid_t* key, myfile* file) {
 
 	//initialise
 	if ((rc = store_file(key, file)) != 0) {
-		write_log("create_file: new file create failed. error: %i\n", rc);
+		write_log("create_file: store_file: new file create failed. error: %i\n", rc);
 		return rc;
 	}
 	return 0;
@@ -405,7 +405,7 @@ static int myfs_getattr(const char *path, struct stat *stbuf) {
 	}else{
 		int rc;
 		if ((rc = find_entrance(path, &myfcb, &myent)) != 0) {
-			write_log("myfs_getattr: failed with %i\n", rc);
+			write_log("myfs_getattr: find entrance: failed with %i\n", rc);
 			return rc;
 		}
 	}
@@ -444,7 +444,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 	}
 	else{
 		if ((rc = find_entrance(path, &fcb, &ent)) != 0) {
-			write_log("readdir(): read the directory failed in find_path\n");
+			write_log("readdir(): find_entrance: read the directory failed in find_path\n");
 			return rc;
 		}
 	}
@@ -452,7 +452,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off
 	for (int i = 0; i < MY_MAX_DIRECT; i++) {
 		if (uuid_compare(zero_uuid, fcb.direct[i]) != 0) {
 			if ((rc = fetch_ent(&(fcb.direct[i]), &ent)) != 0) {
-				write_log("readdir(): fetch failed.\n");
+				write_log("readdir(): fetch entrance: fetch failed.\n");
 				return rc;
 			}
 			else
@@ -481,11 +481,12 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset, str
 	int rc;
 	get_path_filename(path, &fileName, &directory);
 	if ((rc = find_entrance(path, &ptrfcb, &ptrent)) != 0) {
-		write_log("myfs_read: Find entrance failed.\n");
+		write_log("myfs_read: find_entrance: Find entrance failed.\n");
 		return rc;
 	}
 	
 	if ((rc = fetch_file(&(ptrfcb.direct[0]), &file)) != 0) {
+		write_log("myfs_read: fetch file: No data inside. Read empty.\n");
 		memset(&file, 0, sizeof(myfile)); //If there is no file block, create one.
 	}
 	
@@ -536,12 +537,12 @@ static int myfs_utime(const char *path, struct utimbuf *ubuf){
 		myfcb fcb;
 		myent ent;
 		if ((rc = find_entrance(path, &fcb, &ent)) != 0) {
-			write_log("myfs_utime: Error for %i\n", rc);
+			write_log("myfs_utime: find entrance: error for %i\n", rc);
 			return rc;
 		}
 		fcb.mtime = ubuf->modtime;
 		if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
-			write_log("myfs_mtime: Error for %i\n", rc);
+			write_log("myfs_mtime: store_fcb: error for %i\n", rc);
 			return rc;
 		}
 	}
@@ -550,7 +551,7 @@ static int myfs_utime(const char *path, struct utimbuf *ubuf){
 
 // Write to a file.
 // Read 'man 2 write'
-static int myfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi){   
+static int myfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi){  //Debugging 
     write_log("myfs_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
     
 	if(size >= MY_MAX_FILE_SIZE){
@@ -568,26 +569,32 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 	//create a new file with filename
 	myfcb newfcb;
 	myent newent;
-	mode_t mode = S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH;
-	if ((rc = create_new(pathname, filename, mode)) != 0) {
-		write_log("myfs_write: create_new failed with %i\n", rc);
-		return rc;
-	}
 
 	if ((rc = find_entrance(path, &newfcb, &newent)) != 0) {
-		write_log("myfs_write: find_entrance failed with %i\n", rc);
-		return rc;
+		mode_t mode = S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH;
+		if ((rc = create_new(pathname, filename, mode)) != 0) {
+			write_log("myfs_write: create_new failed with %i\n", rc);
+			return rc;
+		}
+		if ((rc = find_entrance(path, &newfcb, &newent)) != 0) {
+			write_log("myfs_write: find entrance failed with %i\n", rc);
+			return rc;
+		}
 	}	//now the fcb is the fcb of the new file
-
-	uuid_t key;
-	if ((rc = free_space_generator(&key, &newent)) != 0) {
-		write_log("myfs_write: find_free_space failed with %i\n", rc);
-		return rc;
-	}	//Now we get a key for storing the file block
 	
+
 	myfile newFile;
-	if ((rc = create_file(&key, &newFile)) != 0) {
-		write_log("myfs_write: create file failed with rc = %i\n", rc);
+	//Check if the file has file entrance
+	if (uuid_compare(zero_uuid, newfcb.direct[0]) == 0) {
+		memset(&newFile, 0 ,sizeof(myfile));
+		uuid_generate(newfcb.direct[0]);
+	}
+	else {
+		if ((rc = fetch_file(&(newfcb.direct[0]), &newFile)) != 0) {
+			write_log("Write: fetch file: failed with %i\n", rc);
+			return rc;
+		}
+
 	}
 
 	// Write the data in-memory and into data struct
@@ -595,8 +602,8 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 	newFile.size = written;
 
 	// Write the data block back to the store.
-	if ((rc = store_file(&key, &newFile)) != 0) {
-		write_log("Store file failed with error %i.\n", rc);
+	if ((rc = store_file(&(newfcb.direct[0]), &newFile)) != 0) {
+		write_log("write: store file failed with error %i.\n", rc);
 		return rc;
 	}
 
@@ -609,7 +616,7 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 	// Write the fcb to the store.
     // Write the data block to the store.
 	if ((rc = store_fcb(&(newent.fcb_id), &newfcb)) != 0) {
-		write_log("Store file failed.\n");
+		write_log("write: store file failed with %i.\n", rc);
 		return rc;
 	}
 	
@@ -631,13 +638,13 @@ int myfs_truncate(const char *path, off_t newsize){
 	myent ent;
 	int rc;
 	if((rc = find_entrance(path, &fcb, &ent)) != 0) {
-		write_log("truncate: Error wil code %i", rc);
+		write_log("truncate: find_entrance: error with code %i", rc);
 	}
 	myfile oldfile;
 	myfile newfile;
 	memset(&newfile, 0, sizeof(newfile));
 	if ((rc = fetch_file(&fcb.direct[0], &oldfile))!=0) {
-		write_log("truncate: Error wil code %i", rc);
+		write_log("truncate: fetch_file: error with code %i", rc);
 		return rc;
 	}
 	memcpy(&newfile, &oldfile, oldfile.size);
@@ -645,11 +652,11 @@ int myfs_truncate(const char *path, off_t newsize){
 	fcb.mtime = time(NULL);
 
 	if ((rc = store_file(&fcb.direct[0], &newfile)) != 0) {
-		write_log("truncate: Error with code %i", rc);
+		write_log("truncate: store_file: error with code %i", rc);
 		return rc;
 	}
 	if ((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
-		write_log("truncate: Error with code %i", rc);
+		write_log("truncate: store_fcb: error with code %i", rc);
 	}
 	return 0;
 }
@@ -665,7 +672,7 @@ int myfs_chmod(const char *path, mode_t mode){
 		return -EIO;
 	}
 	if ((rc = find_entrance(path, &fcb, &ent)) != 0) {
-		write_log("chmod: Permission change failed.\n");
+		write_log("chmod: find_entrance: permission change failed.\n");
 		return rc;
 	}
 	if ((fcb.mode & S_IFDIR) == S_IFDIR) {
@@ -676,7 +683,7 @@ int myfs_chmod(const char *path, mode_t mode){
 		fcb.mode = mode | S_IFREG;
 	}
 	if((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
-		write_log("Chmod: permission change failed\n");
+		write_log("chmod: store_FCB: permission change failed\n");
 		return rc;
 	}
     return 0;
@@ -693,13 +700,13 @@ int myfs_chown(const char *path, uid_t uid, gid_t gid){
 		return -EIO;
 	}
 	if ((rc = find_entrance(path, &fcb, &ent)) != 0) {
-		write_log("chmod: Permission change failed.\n");
+		write_log("chown: find_entrance: Permission change failed.\n");
 		return rc;
 	}
 	fcb.uid = uid;
 	fcb.gid = gid;
 	if((rc = store_fcb(&(ent.fcb_id), &fcb)) != 0) {
-		write_log("Chmod: permission change failed\n");
+		write_log("chown: store_fcb: permission change failed\n");
 		return rc;
 	}
     return 0;
